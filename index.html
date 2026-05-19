@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa GTA Dibujable</title>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  overflow: hidden;
+  background: black;
+  font-family: Arial, sans-serif;
+}
+
+.toolbar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  gap: 10px;
+  background: rgba(20,20,20,0.95);
+  padding: 10px;
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+button, input[type="color"] {
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.active {
+  outline: 2px solid white;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="moveBtn">Mover</button>
+  <button id="drawBtn" class="active">Dibujar</button>
+  <button id="markBtn">Marcas mapa</button>
+  <button id="eraserBtn">Goma</button>
+  <input type="color" id="colorPicker" value="#ffffff">
+  <button id="clearBtn">Borrar todo</button>
+</div>
+
+<canvas id="mapCanvas"></canvas>
+<canvas id="drawCanvas"></canvas>
+
+<script>
+const mapCanvas = document.getElementById("mapCanvas");
+const drawCanvas = document.getElementById("drawCanvas");
+
+const mapCtx = mapCanvas.getContext("2d");
+const drawCtx = drawCanvas.getContext("2d");
+
+const moveBtn = document.getElementById("moveBtn");
+const drawBtn = document.getElementById("drawBtn");
+const markBtn = document.getElementById("markBtn");
+const eraserBtn = document.getElementById("eraserBtn");
+const clearBtn = document.getElementById("clearBtn");
+const colorPicker = document.getElementById("colorPicker");
+
+let mode = "draw";
+let drawing = false;
+let dragging = false;
+let currentColor = "#ffffff";
+
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
+let startDragX = 0;
+let startDragY = 0;
+let lastX = 0;
+let lastY = 0;
+
+const mapImg = new Image();
+mapImg.src = "img/gta5map.png";
+
+function saveDrawing() {
+  localStorage.setItem("gtaDrawings", drawCanvas.toDataURL());
+}
+
+function loadDrawing() {
+  const saved = localStorage.getItem("gtaDrawings");
+  if (!saved) return;
+
+  const img = new Image();
+  img.onload = () => {
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    drawCtx.drawImage(img, 0, 0);
+  };
+  img.src = saved;
+}
+
+function resizeCanvas() {
+  [mapCanvas, drawCanvas].forEach(c => {
+    c.width = window.innerWidth;
+    c.height = window.innerHeight;
+  });
+
+  redrawMap();
+  transformDrawLayer();
+  loadDrawing();
+}
+
+function setMode(newMode) {
+  mode = newMode;
+
+  moveBtn.classList.toggle("active", mode === "move");
+  drawBtn.classList.toggle("active", mode === "draw");
+  markBtn.classList.toggle("active", mode === "mark");
+  eraserBtn.classList.toggle("active", mode === "erase");
+}
+
+function getWorldPos(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+
+  return {
+    x: (e.clientX - rect.left) / scale,
+    y: (e.clientY - rect.top) / scale
+  };
+}
+
+function redrawMap() {
+  mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+  mapCtx.save();
+  mapCtx.translate(offsetX, offsetY);
+  mapCtx.scale(scale, scale);
+  mapCtx.drawImage(mapImg, 0, 0);
+  mapCtx.restore();
+}
+
+function transformDrawLayer() {
+  drawCanvas.style.transform =
+    `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+
+  drawCanvas.style.transformOrigin = "top left";
+}
+
+function drawMarker(x, y) {
+  drawCtx.fillStyle = currentColor;
+
+  drawCtx.beginPath();
+  drawCtx.arc(x, y, 10, 0, Math.PI * 2);
+  drawCtx.fill();
+
+  drawCtx.beginPath();
+  drawCtx.moveTo(x - 6, y + 8);
+  drawCtx.lineTo(x, y + 20);
+  drawCtx.lineTo(x + 6, y + 8);
+  drawCtx.fill();
+
+  drawCtx.fillStyle = "black";
+  drawCtx.beginPath();
+  drawCtx.arc(x, y, 4, 0, Math.PI * 2);
+  drawCtx.fill();
+}
+
+function start(e) {
+  if (mode === "move") {
+    dragging = true;
+    startDragX = e.clientX - offsetX;
+    startDragY = e.clientY - offsetY;
+    return;
+  }
+
+  const pos = getWorldPos(e);
+
+  if (mode === "mark") {
+    drawMarker(pos.x, pos.y);
+    saveDrawing();
+    return;
+  }
+
+  drawing = true;
+  lastX = pos.x;
+  lastY = pos.y;
+
+  if (mode === "erase") {
+    drawCtx.globalCompositeOperation = "destination-out";
+    drawCtx.lineWidth = 20;
+  } else {
+    drawCtx.globalCompositeOperation = "source-over";
+    drawCtx.strokeStyle = currentColor;
+    drawCtx.lineWidth = 4;
+  }
+
+  drawCtx.lineCap = "round";
+}
+
+function move(e) {
+  if (dragging) {
+    offsetX = e.clientX - startDragX;
+    offsetY = e.clientY - startDragY;
+
+    redrawMap();
+    transformDrawLayer();
+    return;
+  }
+
+  if (!drawing) return;
+
+  const pos = getWorldPos(e);
+
+  drawCtx.beginPath();
+  drawCtx.moveTo(lastX, lastY);
+  drawCtx.lineTo(pos.x, pos.y);
+  drawCtx.stroke();
+
+  lastX = pos.x;
+  lastY = pos.y;
+}
+
+function stop() {
+  drawing = false;
+  dragging = false;
+  drawCtx.globalCompositeOperation = "source-over";
+  saveDrawing();
+}
+
+drawCanvas.addEventListener("mousedown", start);
+drawCanvas.addEventListener("mousemove", move);
+drawCanvas.addEventListener("mouseup", stop);
+drawCanvas.addEventListener("mouseleave", stop);
+
+drawCanvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+
+  const mouseX = e.clientX;
+  const mouseY = e.clientY;
+
+  const zoom = e.deltaY < 0 ? 1.1 : 0.9;
+  const oldScale = scale;
+
+  scale *= zoom;
+  scale = Math.min(Math.max(scale, 0.3), 6);
+
+  offsetX = mouseX - ((mouseX - offsetX) * scale / oldScale);
+  offsetY = mouseY - ((mouseY - offsetY) * scale / oldScale);
+
+  redrawMap();
+  transformDrawLayer();
+});
+
+moveBtn.onclick = () => setMode("move");
+drawBtn.onclick = () => setMode("draw");
+markBtn.onclick = () => setMode("mark");
+eraserBtn.onclick = () => setMode("erase");
+
+colorPicker.oninput = (e) => {
+  currentColor = e.target.value;
+};
+
+clearBtn.onclick = () => {
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  localStorage.removeItem("gtaDrawings");
+};
+
+mapImg.onload = () => {
+  offsetX = (window.innerWidth - mapImg.width) / 2;
+  offsetY = (window.innerHeight - mapImg.height) / 2;
+
+  redrawMap();
+  transformDrawLayer();
+  loadDrawing();
+};
+
+window.addEventListener("resize", resizeCanvas);
+
+resizeCanvas();
+</script>
+
+</body>
+</html>
