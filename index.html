@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mapa GTA Online</title>
+<title>Mapa GTA Online Compartido</title>
 
 <style>
 *{
@@ -65,12 +65,6 @@ canvas{
   border-radius:12px;
   color:white;
 }
-
-#addPageBtn{
-  font-size:22px;
-  font-weight:bold;
-  min-width:50px;
-}
 </style>
 </head>
 <body>
@@ -83,14 +77,15 @@ canvas{
   <button id="eraserBtn">Goma</button>
   <input type="color" id="colorPicker" value="#ff0000">
   <button id="clearBtn">Borrar todo</button>
-  <button id="addPageBtn">+</button>
+  <button id="addPageBtn">Nueva pantalla</button>
 </div>
 
 <canvas id="mapCanvas"></canvas>
 <canvas id="drawCanvas"></canvas>
 
 <div class="pageControls">
-  <span id="pageName">Página 1</span>
+  <button id="prevPageBtn">Anterior</button>
+  <span id="pageName">Cargando...</span>
   <button id="nextPageBtn">Siguiente</button>
 </div>
 
@@ -110,17 +105,19 @@ import {
 from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
+  apiKey: "AIzaSyDph7kWJZCI07QOstEXHUGc5YgT8q8OFcg",
   authDomain: "mapa-gta5.firebaseapp.com",
   projectId: "mapa-gta5",
   storageBucket: "mapa-gta5.firebasestorage.app",
   messagingSenderId: "561641255437",
-  appId: "TU_APP_ID"
+  appId: "1:561641255437:web:3c638122d764636340db44"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+
 const drawingsRef = collection(db,"drawings");
+const pagesRef = collection(db,"pages");
 
 const mapCanvas = document.getElementById("mapCanvas");
 const drawCanvas = document.getElementById("drawCanvas");
@@ -135,6 +132,7 @@ const textBtn = document.getElementById("textBtn");
 const eraserBtn = document.getElementById("eraserBtn");
 const clearBtn = document.getElementById("clearBtn");
 const addPageBtn = document.getElementById("addPageBtn");
+const prevPageBtn = document.getElementById("prevPageBtn");
 const nextPageBtn = document.getElementById("nextPageBtn");
 const pageName = document.getElementById("pageName");
 const colorPicker = document.getElementById("colorPicker");
@@ -151,7 +149,7 @@ let startDragY = 0;
 let drawings = [];
 let currentPath = null;
 
-let pages = ["Página 1"];
+let pages = [];
 let currentPage = 0;
 
 const mapImg = new Image();
@@ -162,28 +160,11 @@ function resizeCanvas(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
   });
-
   redrawAll();
 }
 
 function updatePageUI(){
-  pageName.textContent = pages[currentPage];
-}
-
-function addPage(){
-  pages.push(`Página ${pages.length + 1}`);
-  currentPage = pages.length - 1;
-  updatePageUI();
-  redrawAll();
-}
-
-function nextPage(){
-  currentPage++;
-  if(currentPage >= pages.length){
-    currentPage = 0;
-  }
-  updatePageUI();
-  redrawAll();
+  pageName.textContent = pages[currentPage]?.name || "Sin páginas";
 }
 
 function setMode(newMode){
@@ -198,8 +179,8 @@ function setMode(newMode){
 
 function getWorldPos(e){
   return {
-    x:(e.clientX - offsetX) / scale,
-    y:(e.clientY - offsetY) / scale
+    x:(e.clientX - offsetX)/scale,
+    y:(e.clientY - offsetY)/scale
   };
 }
 
@@ -218,8 +199,8 @@ function drawPath(item){
 
   if(item.type==="erase"){
     drawCtx.globalCompositeOperation = "destination-out";
-    drawCtx.strokeStyle = "rgba(0,0,0,1)";
-  } else {
+    drawCtx.strokeStyle = "black";
+  }else{
     drawCtx.strokeStyle = item.color;
   }
 
@@ -240,21 +221,8 @@ function drawPath(item){
 
 function drawMarker(x,y,color){
   drawCtx.fillStyle = color;
-
   drawCtx.beginPath();
   drawCtx.arc(x,y,10,0,Math.PI*2);
-  drawCtx.fill();
-
-  drawCtx.beginPath();
-  drawCtx.moveTo(x-6,y+8);
-  drawCtx.lineTo(x,y+20);
-  drawCtx.lineTo(x+6,y+8);
-  drawCtx.fill();
-
-  drawCtx.fillStyle = "black";
-
-  drawCtx.beginPath();
-  drawCtx.arc(x,y,4,0,Math.PI*2);
   drawCtx.fill();
 }
 
@@ -295,6 +263,13 @@ function redrawAll(){
   redrawDrawings();
 }
 
+async function addPage(){
+  await addDoc(pagesRef,{
+    name:`Pantalla ${pages.length+1}`,
+    createdAt:Date.now()
+  });
+}
+
 async function saveDrawing(data){
   data.timestamp = Date.now();
   data.page = currentPage;
@@ -332,18 +307,16 @@ function start(e){
   }
 
   if(mode==="text"){
-    const text = prompt("Escribe el texto:");
-
+    const text = prompt("Texto:");
     if(text){
       saveDrawing({
         type:"text",
-        text:text,
+        text,
         x:pos.x,
         y:pos.y,
         color:currentColor
       });
     }
-
     return;
   }
 
@@ -367,8 +340,7 @@ function move(e){
 
   if(!drawing || !currentPath) return;
 
-  const pos = getWorldPos(e);
-  currentPath.points.push(pos);
+  currentPath.points.push(getWorldPos(e));
   redrawDrawings();
 }
 
@@ -382,6 +354,22 @@ function stop(){
   currentPath = null;
 }
 
+function prevPage(){
+  if(!pages.length) return;
+  currentPage--;
+  if(currentPage < 0) currentPage = pages.length - 1;
+  updatePageUI();
+  redrawDrawings();
+}
+
+function nextPage(){
+  if(!pages.length) return;
+  currentPage++;
+  if(currentPage >= pages.length) currentPage = 0;
+  updatePageUI();
+  redrawDrawings();
+}
+
 drawCanvas.addEventListener("mousedown",start);
 drawCanvas.addEventListener("mousemove",move);
 drawCanvas.addEventListener("mouseup",stop);
@@ -391,17 +379,11 @@ drawCanvas.addEventListener("wheel",e=>{
   e.preventDefault();
 
   const oldScale = scale;
-
   scale *= e.deltaY < 0 ? 1.1 : 0.9;
   scale = Math.min(Math.max(scale,0.3),6);
 
-  offsetX =
-    e.clientX -
-    ((e.clientX - offsetX) * scale / oldScale);
-
-  offsetY =
-    e.clientY -
-    ((e.clientY - offsetY) * scale / oldScale);
+  offsetX = e.clientX - ((e.clientX - offsetX)*scale/oldScale);
+  offsetY = e.clientY - ((e.clientY - offsetY)*scale/oldScale);
 
   redrawAll();
 });
@@ -411,9 +393,10 @@ drawBtn.onclick = ()=>setMode("draw");
 markBtn.onclick = ()=>setMode("mark");
 textBtn.onclick = ()=>setMode("text");
 eraserBtn.onclick = ()=>setMode("erase");
-addPageBtn.onclick = addPage;
-nextPageBtn.onclick = nextPage;
 clearBtn.onclick = clearAll;
+addPageBtn.onclick = addPage;
+prevPageBtn.onclick = prevPage;
+nextPageBtn.onclick = nextPage;
 
 colorPicker.oninput = e=>{
   currentColor = e.target.value;
@@ -427,6 +410,20 @@ onSnapshot(drawingsRef,snapshot=>{
   redrawDrawings();
 });
 
+onSnapshot(pagesRef,snapshot=>{
+  pages = snapshot.docs
+    .map(doc=>doc.data())
+    .sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+
+  if(pages.length===0){
+    addPage();
+    return;
+  }
+
+  updatePageUI();
+  redrawDrawings();
+});
+
 mapImg.onload = ()=>{
   offsetX = (window.innerWidth - mapImg.width)/2;
   offsetY = (window.innerHeight - mapImg.height)/2;
@@ -434,8 +431,6 @@ mapImg.onload = ()=>{
 };
 
 window.addEventListener("resize",resizeCanvas);
-
-updatePageUI();
 resizeCanvas();
 
 </script>
