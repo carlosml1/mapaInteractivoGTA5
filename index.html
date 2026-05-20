@@ -6,7 +6,6 @@
 <title>Mapa GTA Online</title>
 
 <style>
-
 *{
   margin:0;
   padding:0;
@@ -52,26 +51,48 @@ canvas{
   height:100vh;
 }
 
+.pageControls{
+  position:fixed;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:1000;
+  display:flex;
+  gap:12px;
+  align-items:center;
+  background:rgba(20,20,20,.95);
+  padding:10px 16px;
+  border-radius:12px;
+  color:white;
+}
+
+#addPageBtn{
+  font-size:22px;
+  font-weight:bold;
+  min-width:50px;
+}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-
   <button id="moveBtn">Mover</button>
   <button id="drawBtn" class="active">Dibujar</button>
   <button id="markBtn">Marcas mapa</button>
   <button id="textBtn">Texto</button>
   <button id="eraserBtn">Goma</button>
-
   <input type="color" id="colorPicker" value="#ff0000">
-
   <button id="clearBtn">Borrar todo</button>
-
+  <button id="addPageBtn">+</button>
 </div>
 
 <canvas id="mapCanvas"></canvas>
 <canvas id="drawCanvas"></canvas>
+
+<div class="pageControls">
+  <span id="pageName">Página 1</span>
+  <button id="nextPageBtn">Siguiente</button>
+</div>
 
 <script type="module">
 
@@ -89,19 +110,16 @@ import {
 from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
-
-  apiKey: "AIzaSyDph7kWJZCI07QOstEXHUGc5YgT8q8OFcg",
+  apiKey: "TU_API_KEY",
   authDomain: "mapa-gta5.firebaseapp.com",
   projectId: "mapa-gta5",
   storageBucket: "mapa-gta5.firebasestorage.app",
   messagingSenderId: "561641255437",
-  appId: "1:561641255437:web:3c638122d764636340db44"
+  appId: "TU_APP_ID"
 };
 
 const app = initializeApp(firebaseConfig);
-
 const db = getFirestore(app);
-
 const drawingsRef = collection(db,"drawings");
 
 const mapCanvas = document.getElementById("mapCanvas");
@@ -116,46 +134,59 @@ const markBtn = document.getElementById("markBtn");
 const textBtn = document.getElementById("textBtn");
 const eraserBtn = document.getElementById("eraserBtn");
 const clearBtn = document.getElementById("clearBtn");
-
+const addPageBtn = document.getElementById("addPageBtn");
+const nextPageBtn = document.getElementById("nextPageBtn");
+const pageName = document.getElementById("pageName");
 const colorPicker = document.getElementById("colorPicker");
 
 let mode = "draw";
-
 let drawing = false;
 let dragging = false;
-
 let currentColor = "#ff0000";
-
 let scale = 1;
-
 let offsetX = 0;
 let offsetY = 0;
-
 let startDragX = 0;
 let startDragY = 0;
-
 let drawings = [];
-
 let currentPath = null;
 
-const mapImg = new Image();
+let pages = ["Página 1"];
+let currentPage = 0;
 
+const mapImg = new Image();
 mapImg.src = "img/gta5map.png";
 
 function resizeCanvas(){
-
   [mapCanvas,drawCanvas].forEach(canvas=>{
-
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-
   });
 
   redrawAll();
 }
 
-function setMode(newMode){
+function updatePageUI(){
+  pageName.textContent = pages[currentPage];
+}
 
+function addPage(){
+  pages.push(`Página ${pages.length + 1}`);
+  currentPage = pages.length - 1;
+  updatePageUI();
+  redrawAll();
+}
+
+function nextPage(){
+  currentPage++;
+  if(currentPage >= pages.length){
+    currentPage = 0;
+  }
+  updatePageUI();
+  redrawAll();
+}
+
+function setMode(newMode){
   mode = newMode;
 
   moveBtn.classList.toggle("active",mode==="move");
@@ -166,257 +197,150 @@ function setMode(newMode){
 }
 
 function getWorldPos(e){
-
   return {
-
     x:(e.clientX - offsetX) / scale,
     y:(e.clientY - offsetY) / scale
-
   };
 }
 
 function redrawMap(){
-
-  mapCtx.clearRect(
-    0,
-    0,
-    mapCanvas.width,
-    mapCanvas.height
-  );
+  mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
 
   mapCtx.save();
-
   mapCtx.translate(offsetX,offsetY);
-
   mapCtx.scale(scale,scale);
-
   mapCtx.drawImage(mapImg,0,0);
-
   mapCtx.restore();
 }
 
-function drawMarker(x,y,color){
+function drawPath(item){
+  drawCtx.save();
 
+  if(item.type==="erase"){
+    drawCtx.globalCompositeOperation = "destination-out";
+    drawCtx.strokeStyle = "rgba(0,0,0,1)";
+  } else {
+    drawCtx.strokeStyle = item.color;
+  }
+
+  drawCtx.lineWidth = item.width;
+  drawCtx.lineCap = "round";
+  drawCtx.lineJoin = "round";
+
+  drawCtx.beginPath();
+  drawCtx.moveTo(item.points[0].x,item.points[0].y);
+
+  item.points.forEach(p=>{
+    drawCtx.lineTo(p.x,p.y);
+  });
+
+  drawCtx.stroke();
+  drawCtx.restore();
+}
+
+function drawMarker(x,y,color){
   drawCtx.fillStyle = color;
 
   drawCtx.beginPath();
-
   drawCtx.arc(x,y,10,0,Math.PI*2);
-
   drawCtx.fill();
 
   drawCtx.beginPath();
-
   drawCtx.moveTo(x-6,y+8);
   drawCtx.lineTo(x,y+20);
   drawCtx.lineTo(x+6,y+8);
-
   drawCtx.fill();
 
   drawCtx.fillStyle = "black";
 
   drawCtx.beginPath();
-
   drawCtx.arc(x,y,4,0,Math.PI*2);
-
   drawCtx.fill();
 }
 
 function redrawDrawings(){
-
-  drawCtx.clearRect(
-    0,
-    0,
-    drawCanvas.width,
-    drawCanvas.height
-  );
+  drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height);
 
   drawCtx.save();
-
   drawCtx.translate(offsetX,offsetY);
-
   drawCtx.scale(scale,scale);
 
-  drawings.forEach(item=>{
+  drawings
+    .filter(item => item.page === currentPage)
+    .forEach(item=>{
+      if(item.type==="line" || item.type==="erase"){
+        drawPath(item);
+      }
 
-    if(item.type==="erase"){
+      if(item.type==="marker"){
+        drawMarker(item.x,item.y,item.color);
+      }
 
-      drawCtx.save();
+      if(item.type==="text"){
+        drawCtx.fillStyle = item.color;
+        drawCtx.font = "24px Arial";
+        drawCtx.fillText(item.text,item.x,item.y);
+      }
+    });
 
-      drawCtx.globalCompositeOperation =
-        "destination-out";
-
-      drawCtx.strokeStyle =
-        "rgba(0,0,0,1)";
-
-      drawCtx.lineWidth =
-        item.width;
-
-      drawCtx.lineCap =
-        "round";
-
-      drawCtx.beginPath();
-
-      drawCtx.moveTo(
-        item.points[0].x,
-        item.points[0].y
-      );
-
-      item.points.forEach(p=>{
-
-        drawCtx.lineTo(
-          p.x,
-          p.y
-        );
-
-      });
-
-      drawCtx.stroke();
-
-      drawCtx.restore();
-
-      return;
-    }
-
-    if(item.type==="line"){
-
-      drawCtx.strokeStyle =
-        item.color;
-
-      drawCtx.lineWidth =
-        item.width;
-
-      drawCtx.lineCap =
-        "round";
-
-      drawCtx.beginPath();
-
-      drawCtx.moveTo(
-        item.points[0].x,
-        item.points[0].y
-      );
-
-      item.points.forEach(p=>{
-
-        drawCtx.lineTo(
-          p.x,
-          p.y
-        );
-
-      });
-
-      drawCtx.stroke();
-    }
-
-    if(item.type==="marker"){
-
-      drawMarker(
-        item.x,
-        item.y,
-        item.color
-      );
-    }
-
-    if(item.type==="text"){
-
-      drawCtx.fillStyle =
-        item.color;
-
-      drawCtx.font =
-        "24px Arial";
-
-      drawCtx.fillText(
-        item.text,
-        item.x,
-        item.y
-      );
-    }
-
-  });
+  if(currentPath){
+    drawPath(currentPath);
+  }
 
   drawCtx.restore();
 }
 
 function redrawAll(){
-
   redrawMap();
-
   redrawDrawings();
 }
 
 async function saveDrawing(data){
-
   data.timestamp = Date.now();
-
-  await addDoc(
-    drawingsRef,
-    data
-  );
+  data.page = currentPage;
+  await addDoc(drawingsRef,data);
 }
 
 async function clearAll(){
-
-  const snapshot =
-    await getDocs(drawingsRef);
+  const snapshot = await getDocs(drawingsRef);
 
   snapshot.forEach(doc=>{
-
-    deleteDoc(doc.ref);
-
+    if(doc.data().page === currentPage){
+      deleteDoc(doc.ref);
+    }
   });
 }
 
 function start(e){
-
   if(mode==="move"){
-
     dragging = true;
-
-    startDragX =
-      e.clientX - offsetX;
-
-    startDragY =
-      e.clientY - offsetY;
-
+    startDragX = e.clientX - offsetX;
+    startDragY = e.clientY - offsetY;
     return;
   }
 
   const pos = getWorldPos(e);
 
   if(mode==="mark"){
-
     saveDrawing({
-
       type:"marker",
-
       x:pos.x,
       y:pos.y,
-
       color:currentColor
-
     });
-
     return;
   }
 
   if(mode==="text"){
-
-    const text =
-      prompt("Escribe el texto:");
+    const text = prompt("Escribe el texto:");
 
     if(text){
-
       saveDrawing({
-
         type:"text",
-
         text:text,
-
         x:pos.x,
         y:pos.y,
-
         color:currentColor
-
       });
     }
 
@@ -426,175 +350,92 @@ function start(e){
   drawing = true;
 
   currentPath = {
-
-    type:
-      mode==="erase"
-      ? "erase"
-      : "line",
-
-    color:currentColor,
-
-    width:
-      mode==="erase"
-      ? 20
-      : 4,
-
+    type: mode==="erase" ? "erase" : "line",
+    color: currentColor,
+    width: mode==="erase" ? 20 : 4,
     points:[pos]
   };
 }
 
 function move(e){
-
   if(dragging){
-
-    offsetX =
-      e.clientX - startDragX;
-
-    offsetY =
-      e.clientY - startDragY;
-
+    offsetX = e.clientX - startDragX;
+    offsetY = e.clientY - startDragY;
     redrawAll();
-
     return;
   }
 
-  if(!drawing) return;
+  if(!drawing || !currentPath) return;
 
   const pos = getWorldPos(e);
-
   currentPath.points.push(pos);
-
-  drawings.push(currentPath);
-
   redrawDrawings();
-
-  drawings.pop();
 }
 
 function stop(){
-
   if(drawing && currentPath){
-
     saveDrawing(currentPath);
   }
 
   drawing = false;
-
   dragging = false;
-
   currentPath = null;
 }
 
-drawCanvas.addEventListener(
-  "mousedown",
-  start
-);
+drawCanvas.addEventListener("mousedown",start);
+drawCanvas.addEventListener("mousemove",move);
+drawCanvas.addEventListener("mouseup",stop);
+drawCanvas.addEventListener("mouseleave",stop);
 
-drawCanvas.addEventListener(
-  "mousemove",
-  move
-);
+drawCanvas.addEventListener("wheel",e=>{
+  e.preventDefault();
 
-drawCanvas.addEventListener(
-  "mouseup",
-  stop
-);
+  const oldScale = scale;
 
-drawCanvas.addEventListener(
-  "mouseleave",
-  stop
-);
-
-drawCanvas.addEventListener(
-  "wheel",
-  e=>{
-
-    e.preventDefault();
-
-    const oldScale = scale;
-
-    scale *=
-      e.deltaY < 0
-      ? 1.1
-      : 0.9;
-
-    scale = Math.min(
-      Math.max(scale,0.3),
-      6
-    );
-
-    offsetX =
-      e.clientX -
-      ((e.clientX - offsetX)
-      * scale / oldScale);
-
-    offsetY =
-      e.clientY -
-      ((e.clientY - offsetY)
-      * scale / oldScale);
-
-    redrawAll();
-  }
-);
-
-moveBtn.onclick =
-  ()=>setMode("move");
-
-drawBtn.onclick =
-  ()=>setMode("draw");
-
-markBtn.onclick =
-  ()=>setMode("mark");
-
-textBtn.onclick =
-  ()=>setMode("text");
-
-eraserBtn.onclick =
-  ()=>setMode("erase");
-
-colorPicker.oninput = e=>{
-
-  currentColor =
-    e.target.value;
-};
-
-clearBtn.onclick = clearAll;
-
-onSnapshot(
-  drawingsRef,
-  snapshot=>{
-
-    drawings =
-      snapshot.docs
-        .map(doc=>doc.data())
-        .sort((a,b)=>
-          (a.timestamp||0)
-          -
-          (b.timestamp||0)
-        );
-
-    redrawDrawings();
-  }
-);
-
-mapImg.onload = ()=>{
+  scale *= e.deltaY < 0 ? 1.1 : 0.9;
+  scale = Math.min(Math.max(scale,0.3),6);
 
   offsetX =
-    (window.innerWidth
-    - mapImg.width) / 2;
+    e.clientX -
+    ((e.clientX - offsetX) * scale / oldScale);
 
   offsetY =
-    (window.innerHeight
-    - mapImg.height) / 2;
+    e.clientY -
+    ((e.clientY - offsetY) * scale / oldScale);
 
+  redrawAll();
+});
+
+moveBtn.onclick = ()=>setMode("move");
+drawBtn.onclick = ()=>setMode("draw");
+markBtn.onclick = ()=>setMode("mark");
+textBtn.onclick = ()=>setMode("text");
+eraserBtn.onclick = ()=>setMode("erase");
+addPageBtn.onclick = addPage;
+nextPageBtn.onclick = nextPage;
+clearBtn.onclick = clearAll;
+
+colorPicker.oninput = e=>{
+  currentColor = e.target.value;
+};
+
+onSnapshot(drawingsRef,snapshot=>{
+  drawings = snapshot.docs
+    .map(doc=>doc.data())
+    .sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+
+  redrawDrawings();
+});
+
+mapImg.onload = ()=>{
+  offsetX = (window.innerWidth - mapImg.width)/2;
+  offsetY = (window.innerHeight - mapImg.height)/2;
   redrawAll();
 };
 
-window.addEventListener(
-  "resize",
-  resizeCanvas
-);
+window.addEventListener("resize",resizeCanvas);
 
+updatePageUI();
 resizeCanvas();
 
 </script>
